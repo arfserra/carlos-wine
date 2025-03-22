@@ -39,6 +39,108 @@ def check_password():
     )
     return False
 
+# Image processing function to avoid duplicating code
+def process_image(image_data, mode):
+    if mode == "wine_add":
+        with st.spinner("Analyzing wine label..."):
+            result = ai_service.analyze_wine_label(image_data)
+            
+            if result["success"]:
+                wine_data = result["data"]
+                st.session_state.temp_wine = {
+                    "name": wine_data["name"],
+                    "description": wine_data["description"]
+                }
+                
+                # Show wine details for confirmation
+                st.subheader("Wine Details")
+                st.write(f"**Name:** {wine_data['name']}")
+                st.write(f"**Description:** {wine_data['description']}")
+                
+                # Suggest position based on wine type
+                positions = storage_service.get_available_positions()
+                if positions:
+                    # Determine if it's a white or red wine
+                    is_white_wine = False
+                    if isinstance(wine_data['description'], dict):
+                        wine_type = wine_data['description'].get('wine_type', '').lower()
+                        is_white_wine = 'white' in wine_type or 'blanc' in wine_type
+                    else:
+                        # Try to infer from the description text
+                        description_lower = wine_data['description'].lower()
+                        is_white_wine = 'white' in description_lower or 'blanc' in description_lower
+                    
+                    # Find appropriate position based on wine type
+                    appropriate_positions = []
+                    for pos in positions:
+                        # White wines go to first zone (contains "White" in zone name)
+                        if is_white_wine and "White" in pos["zone"]:
+                            appropriate_positions.append(pos)
+                        # Red wines go to second zone (contains "Red" in zone name)
+                        elif not is_white_wine and "Red" in pos["zone"]:
+                            appropriate_positions.append(pos)
+                    
+                    # If no appropriate positions found, fall back to any available position
+                    if not appropriate_positions:
+                        appropriate_positions = positions
+                    
+                    position = appropriate_positions[0]
+                    st.session_state.temp_position = position
+                    
+                    wine_type_str = "white" if is_white_wine else "red"
+                    st.write(f"**Suggested Position:** {position['identifier']} ({position['zone']})")
+                    st.write(f"*Recommendation based on {wine_type_str} wine type.*")
+                    
+                    if st.button("Confirm and Add to Collection"):
+                        # Save wine to database with position
+                        wine_data = st.session_state.temp_wine
+                        wine_data["position_id"] = position["id"]
+                        wine_service.add_wine(wine_data)
+                        
+                        # Add confirmation message
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": f"I've added {wine_data['name']} to your collection at position {position['identifier']}. Is there anything else you'd like to do?"
+                        })
+                        
+                        # Reset session values
+                        st.session_state.temp_wine = None
+                        st.session_state.temp_position = None
+                        st.session_state.conversation_mode = "general"
+                        
+                        # Clear file uploader by creating a new key
+                        st.rerun()
+                else:
+                    st.error("No available positions in your storage. Please free up space by consuming wines.")
+            else:
+                st.error(f"Could not analyze wine label: {result.get('error', 'Unknown error')}. Please try again.")
+    
+    elif mode == "pairing":
+        with st.spinner("Analyzing food image..."):
+            wines = wine_service.get_wines()
+            if not wines:
+                st.warning("Your collection is empty. Add some wines first!")
+            else:
+                wine_list = [{"name": wine["name"], "description": wine["description"]} for wine in wines]
+                result = ai_service.get_pairing_recommendation(image_data, wine_list, is_image=True)
+                
+                if result["success"]:
+                    recommendation = result["recommendation"]
+                    
+                    # Show recommendation
+                    st.subheader("Wine Pairing Recommendation")
+                    st.write(recommendation)
+                    
+                    # Add to chat
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": recommendation
+                    })
+                    st.session_state.conversation_mode = "general"
+                    st.rerun()
+                else:
+                    st.error(f"Could not analyze food image: {result.get('error', 'Unknown error')}. Please try again or describe the dish instead.")
+
 # Set page config
 st.set_page_config(page_title="Carlos Wine Assistant", page_icon="🍷", layout="wide")
 
@@ -82,7 +184,7 @@ with st.sidebar:
         st.session_state.conversation_mode = "wine_add"
         st.session_state.messages.append({
             "role": "assistant",
-            "content": "Let's add a new wine to your collection. Please upload a picture of the wine label."
+            "content": "Let's add a new wine to your collection. You can take a picture of the wine label or upload an image."
         })
         st.rerun()
     
@@ -91,7 +193,7 @@ with st.sidebar:
         st.session_state.conversation_mode = "pairing"
         st.session_state.messages.append({
             "role": "assistant",
-            "content": "What are you eating? You can describe the dish or upload a photo of it."
+            "content": "What are you eating? You can take a picture of the dish or describe it."
         })
         st.rerun()
     
@@ -169,122 +271,44 @@ for i, msg in enumerate(st.session_state.messages):
     else:
         st.chat_message("assistant").write(msg["content"])
 
-# File uploader (conditionally displayed based on conversation mode)
+# File uploader and camera input (conditionally displayed based on conversation mode)
 if st.session_state.conversation_mode in ["wine_add", "pairing"]:
-    upload_text = "Upload a wine label image" if st.session_state.conversation_mode == "wine_add" else "Upload a food image"
-    uploaded_file = st.file_uploader(
-        upload_text, 
-        type=["jpg", "jpeg", "png"],
-        key=f"uploader_{st.session_state.conversation_mode}"
-    )
+    upload_text = "Wine Label" if st.session_state.conversation_mode == "wine_add" else "Food"
     
-    if uploaded_file:
-        image_data = uploaded_file.getvalue()
-        # Display image with controlled width instead of full container width
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image(image_data, caption="Uploaded Image", width=300)
+    # Add tabs to choose between camera or file upload
+    camera_tab, upload_tab = st.tabs(["📸 Camera", "📁 Upload"])
+    
+    with camera_tab:
+        img_file_buffer = st.camera_input(f"Take a picture of the {upload_text}")
+        if img_file_buffer is not None:
+            # Process the camera image
+            image_data = img_file_buffer.getvalue()
+            
+            # Display image with controlled width
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image(image_data, caption="Captured Image", width=300)
+            
+            # Process based on mode
+            process_image(image_data, st.session_state.conversation_mode)
+    
+    with upload_tab:
+        uploaded_file = st.file_uploader(
+            f"Upload a {upload_text} image", 
+            type=["jpg", "jpeg", "png"],
+            key=f"uploader_{st.session_state.conversation_mode}"
+        )
         
-        # Process image based on mode
-        if st.session_state.conversation_mode == "wine_add":
-            with st.spinner("Analyzing wine label..."):
-                result = ai_service.analyze_wine_label(image_data)
-                
-                if result["success"]:
-                    wine_data = result["data"]
-                    st.session_state.temp_wine = {
-                        "name": wine_data["name"],
-                        "description": wine_data["description"]
-                    }
-                    
-                    # Show wine details for confirmation
-                    st.subheader("Wine Details")
-                    st.write(f"**Name:** {wine_data['name']}")
-                    st.write(f"**Description:** {wine_data['description']}")
-                    
-                    # Suggest position based on wine type
-                    positions = storage_service.get_available_positions()
-                    if positions:
-                        # Determine if it's a white or red wine
-                        is_white_wine = False
-                        if isinstance(wine_data['description'], dict):
-                            wine_type = wine_data['description'].get('wine_type', '').lower()
-                            is_white_wine = 'white' in wine_type or 'blanc' in wine_type
-                        else:
-                            # Try to infer from the description text
-                            description_lower = wine_data['description'].lower()
-                            is_white_wine = 'white' in description_lower or 'blanc' in description_lower
-                        
-                        # Find appropriate position based on wine type
-                        appropriate_positions = []
-                        for pos in positions:
-                            # White wines go to first zone (contains "White" in zone name)
-                            if is_white_wine and "White" in pos["zone"]:
-                                appropriate_positions.append(pos)
-                            # Red wines go to second zone (contains "Red" in zone name)
-                            elif not is_white_wine and "Red" in pos["zone"]:
-                                appropriate_positions.append(pos)
-                        
-                        # If no appropriate positions found, fall back to any available position
-                        if not appropriate_positions:
-                            appropriate_positions = positions
-                        
-                        position = appropriate_positions[0]
-                        st.session_state.temp_position = position
-                        
-                        wine_type_str = "white" if is_white_wine else "red"
-                        st.write(f"**Suggested Position:** {position['identifier']} ({position['zone']})")
-                        st.write(f"*Recommendation based on {wine_type_str} wine type.*")
-                        
-                        if st.button("Confirm and Add to Collection"):
-                            # Save wine to database with position
-                            wine_data = st.session_state.temp_wine
-                            wine_data["position_id"] = position["id"]
-                            wine_service.add_wine(wine_data)
-                            
-                            # Add confirmation message
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": f"I've added {wine_data['name']} to your collection at position {position['identifier']}. Is there anything else you'd like to do?"
-                            })
-                            
-                            # Reset session values
-                            st.session_state.temp_wine = None
-                            st.session_state.temp_position = None
-                            st.session_state.conversation_mode = "general"
-                            
-                            # Clear file uploader by creating a new key
-                            st.rerun()
-                    else:
-                        st.error("No available positions in your storage. Please free up space by consuming wines.")
-                else:
-                    st.error(f"Could not analyze wine label: {result.get('error', 'Unknown error')}. Please try again.")
-        
-        elif st.session_state.conversation_mode == "pairing":
-            with st.spinner("Analyzing food image..."):
-                wines = wine_service.get_wines()
-                if not wines:
-                    st.warning("Your collection is empty. Add some wines first!")
-                else:
-                    wine_list = [{"name": wine["name"], "description": wine["description"]} for wine in wines]
-                    result = ai_service.get_pairing_recommendation(image_data, wine_list, is_image=True)
-                    
-                    if result["success"]:
-                        recommendation = result["recommendation"]
-                        
-                        # Show recommendation
-                        st.subheader("Wine Pairing Recommendation")
-                        st.write(recommendation)
-                        
-                        # Add to chat
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": recommendation
-                        })
-                        st.session_state.conversation_mode = "general"
-                        st.rerun()
-                    else:
-                        st.error(f"Could not analyze food image: {result.get('error', 'Unknown error')}. Please try again or describe the dish instead.")
+        if uploaded_file:
+            image_data = uploaded_file.getvalue()
+            
+            # Display image with controlled width
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image(image_data, caption="Uploaded Image", width=300)
+            
+            # Process based on mode
+            process_image(image_data, st.session_state.conversation_mode)
 
 # Chat input for text conversation
 user_input = st.chat_input("Ask about your wine collection...")
@@ -397,7 +421,7 @@ if user_input:
             st.session_state.conversation_mode = "wine_add"
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": "Let's add a new wine to your collection. Please upload a picture of the wine label."
+                "content": "Let's add a new wine to your collection. You can take a picture of the wine label or upload an image."
             })
             st.rerun()
         
@@ -406,7 +430,7 @@ if user_input:
             st.session_state.conversation_mode = "pairing"
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": "What are you eating? You can describe the dish or upload a photo of it."
+                "content": "What are you eating? You can take a picture of the dish or describe it."
             })
             st.rerun()
         
