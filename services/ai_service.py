@@ -92,7 +92,7 @@ def get_pairing_recommendation(self, food_input, wines: List[Dict[str, str]], is
         messages = [
             {
                 "role": "system",
-                "content": "You are a wine pairing expert. Recommend wines from the user's collection that would pair well with their food."
+                "content": "You are a wine pairing expert. Recommend wines from the user's collection that would pair well with their food. If there are no wines in the collection that are good suitable, suggest alternatives to buy."
             }
         ]
         
