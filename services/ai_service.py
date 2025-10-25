@@ -99,7 +99,9 @@ class OpenAIService:
                         "role": "system",
                         "content": """You are a wine storage expert. Based on the user's description of their wine storage setup, create a detailed configuration including zones and positions. 
 
-Return a JSON object with this structure:
+IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. The response must be parseable JSON.
+
+Return a JSON object with this exact structure:
 {
     "description": "Brief description of the storage setup",
     "zones": [
@@ -117,7 +119,7 @@ Return a JSON object with this structure:
     "total_positions": number
 }
 
-Create logical zones based on wine types and organize positions within each zone."""
+Create logical zones based on wine types and organize positions within each zone. Ensure all property names are in double quotes."""
                     },
                     {
                         "role": "user",
@@ -128,7 +130,32 @@ Create logical zones based on wine types and organize positions within each zone
                 max_tokens=1000
             )
             
-            content = json.loads(response.choices[0].message.content)
+            # Parse the JSON response with better error handling
+            response_text = response.choices[0].message.content
+            
+            # Try to clean up common JSON issues
+            response_text = response_text.strip()
+            
+            # Handle case where AI might return markdown code block
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]  # Remove ```json
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]  # Remove ```
+            response_text = response_text.strip()
+            
+            try:
+                content = json.loads(response_text)
+            except json.JSONDecodeError as json_error:
+                # If JSON parsing fails, try to extract JSON from the response
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    try:
+                        content = json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        raise json_error
+                else:
+                    raise json_error
             
             return {
                 "success": True,
@@ -137,9 +164,14 @@ Create logical zones based on wine types and organize positions within each zone
             }
             
         except Exception as e:
+            # Add debugging information for JSON parsing errors
+            error_msg = str(e)
+            if "JSON" in error_msg or "json" in error_msg:
+                error_msg += f" (Raw response: {response.choices[0].message.content[:200]}...)" if 'response' in locals() else ""
+            
             return {
                 "success": False,
-                "error": str(e)
+                "error": error_msg
             }
     
     def get_pairing_recommendation(self, food_input, wines: List[Dict[str, str]], is_image: bool = False) -> Dict[str, Any]:
