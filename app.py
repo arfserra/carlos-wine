@@ -12,10 +12,28 @@ from utils.helpers import process_uploaded_image, format_wine_list
 # Load environment variables
 load_dotenv()
 
-# Initialize services
-ai_service = OpenAIService()
-storage_service = StorageService()
-wine_service = WineService()
+# Initialize services lazily to avoid import errors
+ai_service = None
+storage_service = None
+wine_service = None
+
+def get_ai_service():
+    global ai_service
+    if ai_service is None:
+        ai_service = OpenAIService()
+    return ai_service
+
+def get_storage_service():
+    global storage_service
+    if storage_service is None:
+        storage_service = StorageService()
+    return storage_service
+
+def get_wine_service():
+    global wine_service
+    if wine_service is None:
+        wine_service = WineService()
+    return wine_service
 
 # Password protection
 def check_password():
@@ -43,7 +61,7 @@ def check_password():
 def process_image(image_data, mode):
     if mode == "wine_add":
         with st.spinner("Analyzing wine label..."):
-            result = ai_service.analyze_wine_label(image_data)
+            result = get_ai_service().analyze_wine_label(image_data)
             
             if result["success"]:
                 wine_data = result["data"]
@@ -58,7 +76,7 @@ def process_image(image_data, mode):
                 st.write(f"**Description:** {wine_data['description']}")
                 
                 # Suggest position based on wine type
-                positions = storage_service.get_available_positions()
+                positions = get_storage_service().get_available_positions()
                 if positions:
                     # Determine if it's a white or red wine
                     is_white_wine = False
@@ -117,7 +135,7 @@ def process_image(image_data, mode):
                             # Save wine to database with selected position
                             wine_data = st.session_state.temp_wine
                             wine_data["position_id"] = selected_position["id"]
-                            wine_service.add_wine(wine_data)
+                            get_wine_service().add_wine(wine_data)
                             
                             # Add confirmation message
                             st.session_state.messages.append({
@@ -146,12 +164,12 @@ def process_image(image_data, mode):
     
     elif mode == "pairing":
         with st.spinner("Analyzing food image..."):
-            wines = wine_service.get_wines()
+            wines = get_wine_service().get_wines()
             if not wines:
                 st.warning("Your collection is empty. Add some wines first!")
             else:
                 wine_list = [{"name": wine["name"], "description": wine["description"]} for wine in wines]
-                result = ai_service.get_pairing_recommendation(image_data, wine_list, is_image=True)
+                result = get_ai_service().get_pairing_recommendation(image_data, wine_list, is_image=True)
                 
                 if result["success"]:
                     recommendation = result["recommendation"]
@@ -184,7 +202,10 @@ if "messages" not in st.session_state:
 if "conversation_mode" not in st.session_state:
     st.session_state.conversation_mode = "general"
 if "storage_configured" not in st.session_state:
-    st.session_state.storage_configured = storage_service.has_storage()
+    try:
+        st.session_state.storage_configured = get_storage_service().has_storage()
+    except Exception as e:
+        st.session_state.storage_configured = False
 if "temp_wine" not in st.session_state:
     st.session_state.temp_wine = None
 if "temp_position" not in st.session_state:
@@ -196,14 +217,18 @@ st.title("🍷 Carlos Wine Assistant")
 # Sidebar with stats and actions
 with st.sidebar:
     st.header("Collection Stats")
-    wines = wine_service.get_wines()
-    st.write(f"Total wines: {len(wines)}")
-    
-    # Display a few wines if available
-    if wines:
-        st.subheader("Recent Wines")
-        for wine in wines[:5]:
-            st.write(f"• {wine['name']}")
+    try:
+        wines = get_wine_service().get_wines()
+        st.write(f"Total wines: {len(wines)}")
+        
+        # Display a few wines if available
+        if wines:
+            st.subheader("Recent Wines")
+            for wine in wines[:5]:
+                st.write(f"• {wine['name']}")
+    except Exception as e:
+        st.write("Unable to load collection stats")
+        wines = []
     
     # Action buttons
     st.subheader("Actions")
@@ -349,11 +374,11 @@ if user_input:
     if st.session_state.conversation_mode == "storage_setup":
         with st.spinner("Processing your storage description..."):
             # Process storage setup description
-            result = ai_service.get_storage_configuration(user_input)
+            result = get_ai_service().get_storage_configuration(user_input)
             
             if result["success"]:
                 storage_data = result["data"]
-                storage_service.create_storage(storage_data)
+                get_storage_service().create_storage(storage_data)
                 st.session_state.storage_configured = True
                 
                 # Add assistant message
@@ -375,7 +400,7 @@ if user_input:
     
     elif st.session_state.conversation_mode == "pairing":
         with st.spinner("Finding the perfect pairing..."):
-            wines = wine_service.get_wines()
+            wines = get_wine_service().get_wines()
             if not wines:
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -385,7 +410,7 @@ if user_input:
                 st.rerun()
             else:
                 wine_list = [{"name": wine["name"], "description": wine["description"]} for wine in wines]
-                result = ai_service.get_pairing_recommendation(user_input, wine_list, is_image=False)
+                result = get_ai_service().get_pairing_recommendation(user_input, wine_list, is_image=False)
                 
                 if result["success"]:
                     recommendation = result["recommendation"]
@@ -410,7 +435,7 @@ if user_input:
         
         if "consumed" in lower_input or "finished" in lower_input or "drank" in lower_input or "emptied" in lower_input:
             # Handle marking a wine as consumed
-            wines = wine_service.get_wines()
+            wines = get_wine_service().get_wines()
             if not wines:
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -431,7 +456,7 @@ if user_input:
         
         elif "move" in lower_input or "change position" in lower_input or "relocate" in lower_input:
             # Handle changing wine position
-            wines = wine_service.get_wines()
+            wines = get_wine_service().get_wines()
             if not wines:
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -452,7 +477,7 @@ if user_input:
         
         elif "collection" in lower_input or "inventory" in lower_input or "wines" in lower_input:
             # Handle collection status
-            wines = wine_service.get_wines()
+            wines = get_wine_service().get_wines()
             if wines:
                 collection_text = format_wine_list(wines)
                 st.session_state.messages.append({
@@ -545,8 +570,8 @@ if user_input:
             # Handle with GPT-4o for general wine-related queries
             with st.spinner("Thinking..."):
                 # Build context about the user's collection
-                wines = wine_service.get_wines()
-                storage_configured = storage_service.has_storage()
+                wines = get_wine_service().get_wines()
+                storage_configured = get_storage_service().has_storage()
                 
                 collection_context = ""
                 if wines:
@@ -585,7 +610,7 @@ if user_input:
     
     elif st.session_state.conversation_mode == "mark_consumed":
         # Handle the wine consumption marking
-        wines = wine_service.get_wines()
+        wines = get_wine_service().get_wines()
         
         # Try to find the wine by number or name
         selected_wine = None
@@ -605,7 +630,7 @@ if user_input:
         
         if selected_wine:
             # Mark wine as consumed
-            wine_service.mark_wine_consumed(selected_wine["id"])
+            get_wine_service().mark_wine_consumed(selected_wine["id"])
             
             st.session_state.messages.append({
                 "role": "assistant",
@@ -622,7 +647,7 @@ if user_input:
     
     elif st.session_state.conversation_mode == "change_position":
         # Handle changing wine position
-        wines = wine_service.get_wines()
+        wines = get_wine_service().get_wines()
         
         # Try to find the wine by number or name
         selected_wine = None
@@ -646,14 +671,14 @@ if user_input:
             st.session_state.conversation_mode = "select_new_position"
             
             # Get available positions
-            positions = storage_service.get_available_positions()
+            positions = get_storage_service().get_available_positions()
             if positions:
                 position_options = {}
                 for pos in positions:
                     position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
                 
                 # Also add currently occupied positions (excluding the wine's current position)
-                occupied_positions = storage_service.get_all_positions()
+                occupied_positions = get_storage_service().get_all_positions()
                 for pos in occupied_positions:
                     if pos['id'] != selected_wine.get('position_id'):
                         position_options[f"{pos['identifier']} ({pos['zone']}) - OCCUPIED"] = pos
@@ -683,7 +708,7 @@ if user_input:
         selected_wine = st.session_state.temp_wine_to_move
         
         # Get all positions (available and occupied)
-        positions = storage_service.get_all_positions()
+        positions = get_storage_service().get_all_positions()
         position_options = {}
         for pos in positions:
             if pos['id'] != selected_wine.get('position_id'):  # Exclude current position
@@ -708,7 +733,7 @@ if user_input:
         
         if selected_position:
             # Move the wine to the new position
-            wine_service.move_wine_to_position(selected_wine["id"], selected_position["id"])
+            get_wine_service().move_wine_to_position(selected_wine["id"], selected_position["id"])
             
             st.session_state.messages.append({
                 "role": "assistant",

@@ -1,5 +1,4 @@
 import os
-from services.supabase_service import SupabaseService
 
 class Database:
     def __init__(self, db_path="wine_collection.db"):
@@ -9,6 +8,8 @@ class Database:
             raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set for persistent storage")
         
         try:
+            # Import here to avoid circular import
+            from services.supabase_service import SupabaseService
             self.supabase = SupabaseService()
             self.use_supabase = True
             print("Successfully connected to Supabase for persistent storage")
