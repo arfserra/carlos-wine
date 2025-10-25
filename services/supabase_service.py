@@ -1,5 +1,6 @@
 # services/supabase_service.py
 import os
+import streamlit as st
 from supabase import create_client, Client
 from typing import Dict, Any, List, Optional
 import json
@@ -8,12 +9,18 @@ import uuid
 
 class SupabaseService:
     def __init__(self):
-        """Initialize Supabase connection."""
-        self.url = os.getenv("SUPABASE_URL")
-        self.key = os.getenv("SUPABASE_ANON_KEY")
+        """Initialize Supabase connection using Streamlit secrets."""
+        # Try to get from Streamlit secrets first (for deployed apps)
+        try:
+            self.url = st.secrets["SUPABASE_URL"]
+            self.key = st.secrets["SUPABASE_KEY"]
+        except (KeyError, AttributeError):
+            # Fallback to environment variables (for local development)
+            self.url = os.getenv("SUPABASE_URL")
+            self.key = os.getenv("SUPABASE_ANON_KEY")
         
         if not self.url or not self.key:
-            raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables")
+            raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in Streamlit secrets or environment variables")
         
         try:
             self.supabase: Client = create_client(self.url, self.key)
