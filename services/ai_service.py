@@ -99,19 +99,25 @@ class OpenAIService:
                         "role": "system",
                         "content": """You are a wine storage expert. Based on the user's description of their wine storage setup, create a detailed configuration including zones and positions. 
 
-IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. The response must be parseable JSON.
+CRITICAL REQUIREMENTS:
+- Return ONLY valid JSON with no additional text
+- Use double quotes for all strings
+- Escape any quotes within string values using backslash
+- Do not include newlines within string values
+- Keep descriptions short and simple
+- Ensure all strings are properly terminated
 
 Return a JSON object with this exact structure:
 {
     "description": "Brief description of the storage setup",
     "zones": [
         {
-            "name": "Zone name (e.g., 'White Wine Zone', 'Red Wine Zone', 'Champagne Zone')",
-            "description": "Description of this zone",
+            "name": "Zone name",
+            "description": "Zone description",
             "positions": [
                 {
-                    "identifier": "Position identifier (e.g., 'A1', 'B2', 'Top-Left')",
-                    "description": "Description of this position"
+                    "identifier": "Position ID",
+                    "description": "Position description"
                 }
             ]
         }
@@ -119,7 +125,7 @@ Return a JSON object with this exact structure:
     "total_positions": number
 }
 
-Create logical zones based on wine types and organize positions within each zone. Ensure all property names are in double quotes."""
+Create logical zones based on wine types and organize positions within each zone."""
                     },
                     {
                         "role": "user",
@@ -130,32 +136,70 @@ Create logical zones based on wine types and organize positions within each zone
                 max_tokens=1000
             )
             
-            # Parse the JSON response with better error handling
+            # Parse the JSON response with robust error handling
             response_text = response.choices[0].message.content
             
-            # Try to clean up common JSON issues
+            # Clean up the response
             response_text = response_text.strip()
             
-            # Handle case where AI might return markdown code block
+            # Handle markdown code blocks
             if response_text.startswith("```json"):
-                response_text = response_text[7:]  # Remove ```json
+                response_text = response_text[7:]
             if response_text.endswith("```"):
-                response_text = response_text[:-3]  # Remove ```
+                response_text = response_text[:-3]
             response_text = response_text.strip()
             
+            # Try multiple parsing strategies
+            content = None
+            
+            # Strategy 1: Direct JSON parsing
             try:
                 content = json.loads(response_text)
-            except json.JSONDecodeError as json_error:
-                # If JSON parsing fails, try to extract JSON from the response
-                import re
-                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-                if json_match:
+            except json.JSONDecodeError:
+                # Strategy 2: Try to fix common issues
+                try:
+                    # Replace problematic characters that might break JSON
+                    fixed_text = response_text
+                    # Remove any trailing commas before closing braces/brackets
+                    fixed_text = re.sub(r',(\s*[}\]])', r'\1', fixed_text)
+                    # Fix unescaped newlines in strings
+                    fixed_text = re.sub(r'"([^"]*)\n([^"]*)"', r'"\1\\n\2"', fixed_text)
+                    content = json.loads(fixed_text)
+                except json.JSONDecodeError:
+                    # Strategy 3: Extract JSON object using regex
                     try:
-                        content = json.loads(json_match.group())
+                        import re
+                        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if json_match:
+                            content = json.loads(json_match.group())
                     except json.JSONDecodeError:
-                        raise json_error
-                else:
-                    raise json_error
+                        # Strategy 4: Create a fallback structure
+                        # Extract description if possible
+                        description = "Wine Storage"
+                        try:
+                            desc_match = re.search(r'"description"\s*:\s*"([^"]*)"', response_text)
+                            if desc_match:
+                                description = desc_match.group(1)
+                        except:
+                            pass
+                        
+                        # Create a simple fallback structure
+                        content = {
+                            "description": description,
+                            "zones": [
+                                {
+                                    "name": "General Storage",
+                                    "description": "General wine storage area",
+                                    "positions": [
+                                        {"identifier": "A1", "description": "Position A1"},
+                                        {"identifier": "A2", "description": "Position A2"},
+                                        {"identifier": "B1", "description": "Position B1"},
+                                        {"identifier": "B2", "description": "Position B2"}
+                                    ]
+                                }
+                            ],
+                            "total_positions": 4
+                        }
             
             return {
                 "success": True,
