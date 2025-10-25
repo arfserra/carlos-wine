@@ -1,12 +1,9 @@
 import os
+import streamlit as st
 
 class Database:
     def __init__(self, db_path="wine_collection.db"):
         """Initialize database connection - requires Supabase for persistence."""
-        # Require Supabase for production persistence
-        if not os.getenv("SUPABASE_URL") or not os.getenv("SUPABASE_ANON_KEY"):
-            raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set for persistent storage")
-        
         try:
             # Import here to avoid circular import
             from services.supabase_service import SupabaseService
