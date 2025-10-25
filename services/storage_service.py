@@ -17,3 +17,7 @@ class StorageService:
     def has_storage(self):
         """Check if any storage has been configured."""
         return self.db.has_storage()
+    
+    def get_all_positions(self):
+        """Get all positions (available and occupied)."""
+        return self.db.get_all_positions()

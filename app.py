@@ -91,25 +91,54 @@ def process_image(image_data, mode):
                     st.write(f"**Suggested Position:** {position['identifier']} ({position['zone']})")
                     st.write(f"*Recommendation based on {wine_type_str} wine type.*")
                     
-                    if st.button("Confirm and Add to Collection"):
-                        # Save wine to database with position
-                        wine_data = st.session_state.temp_wine
-                        wine_data["position_id"] = position["id"]
-                        wine_service.add_wine(wine_data)
-                        
-                        # Add confirmation message
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": f"I've added {wine_data['name']} to your collection at position {position['identifier']}. Is there anything else you'd like to do?"
-                        })
-                        
-                        # Reset session values
-                        st.session_state.temp_wine = None
-                        st.session_state.temp_position = None
-                        st.session_state.conversation_mode = "general"
-                        
-                        # Clear file uploader by creating a new key
-                        st.rerun()
+                    # Add option to choose different position
+                    st.write("**Don't like this position?** Choose a different one:")
+                    
+                    # Create a dropdown with all available positions
+                    position_options = {}
+                    for pos in positions:
+                        position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
+                    
+                    selected_position_key = st.selectbox(
+                        "Select a different position:",
+                        options=list(position_options.keys()),
+                        index=0,
+                        key="manual_position_select"
+                    )
+                    
+                    if selected_position_key:
+                        selected_position = position_options[selected_position_key]
+                        st.write(f"**Selected Position:** {selected_position['identifier']} ({selected_position['zone']})")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("Confirm and Add to Collection"):
+                            # Save wine to database with selected position
+                            wine_data = st.session_state.temp_wine
+                            wine_data["position_id"] = selected_position["id"]
+                            wine_service.add_wine(wine_data)
+                            
+                            # Add confirmation message
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"I've added {wine_data['name']} to your collection at position {selected_position['identifier']}. Is there anything else you'd like to do?"
+                            })
+                            
+                            # Reset session values
+                            st.session_state.temp_wine = None
+                            st.session_state.temp_position = None
+                            st.session_state.conversation_mode = "general"
+                            
+                            # Clear file uploader by creating a new key
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button("Cancel", type="secondary"):
+                            st.session_state.temp_wine = None
+                            st.session_state.temp_position = None
+                            st.session_state.conversation_mode = "general"
+                            st.rerun()
                 else:
                     st.error("No available positions in your storage. Please free up space by consuming wines.")
             else:
@@ -400,6 +429,27 @@ if user_input:
                 })
                 st.rerun()
         
+        elif "move" in lower_input or "change position" in lower_input or "relocate" in lower_input:
+            # Handle changing wine position
+            wines = wine_service.get_wines()
+            if not wines:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "You don't have any wines in your collection to move."
+                })
+                st.rerun()
+            else:
+                st.session_state.conversation_mode = "change_position"
+                
+                wine_names = [f"{i+1}. {wine['name']} (currently at {wine.get('position_identifier', 'unknown position')})" for i, wine in enumerate(wines)]
+                wines_list = "\n".join(wine_names)
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Which wine would you like to move? Please specify by number or name:\n\n{wines_list}"
+                })
+                st.rerun()
+        
         elif "collection" in lower_input or "inventory" in lower_input or "wines" in lower_input:
             # Handle collection status
             wines = wine_service.get_wines()
@@ -566,6 +616,112 @@ if user_input:
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": "I couldn't find that wine in your collection. Please try again with the exact name or number from the list."
+            })
+        
+        st.rerun()
+    
+    elif st.session_state.conversation_mode == "change_position":
+        # Handle changing wine position
+        wines = wine_service.get_wines()
+        
+        # Try to find the wine by number or name
+        selected_wine = None
+        
+        # Check if user entered a number
+        try:
+            wine_num = int(user_input.strip())
+            if 1 <= wine_num <= len(wines):
+                selected_wine = wines[wine_num - 1]
+        except ValueError:
+            # Not a number, try to find by name
+            user_input_lower = user_input.lower()
+            for wine in wines:
+                if user_input_lower in wine["name"].lower():
+                    selected_wine = wine
+                    break
+        
+        if selected_wine:
+            # Store the selected wine and ask for new position
+            st.session_state.temp_wine_to_move = selected_wine
+            st.session_state.conversation_mode = "select_new_position"
+            
+            # Get available positions
+            positions = storage_service.get_available_positions()
+            if positions:
+                position_options = {}
+                for pos in positions:
+                    position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
+                
+                # Also add currently occupied positions (excluding the wine's current position)
+                occupied_positions = storage_service.get_all_positions()
+                for pos in occupied_positions:
+                    if pos['id'] != selected_wine.get('position_id'):
+                        position_options[f"{pos['identifier']} ({pos['zone']}) - OCCUPIED"] = pos
+                
+                position_list = "\n".join([f"{i+1}. {pos_key}" for i, pos_key in enumerate(position_options.keys())])
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Great! You want to move '{selected_wine['name']}'. Where would you like to move it?\n\nAvailable positions:\n{position_list}\n\nPlease specify by number or position identifier:"
+                })
+            else:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "No available positions found. You'll need to free up a position first by consuming a wine."
+                })
+                st.session_state.conversation_mode = "general"
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "I couldn't find that wine in your collection. Please try again with the exact name or number from the list."
+            })
+        
+        st.rerun()
+    
+    elif st.session_state.conversation_mode == "select_new_position":
+        # Handle selecting the new position for the wine
+        selected_wine = st.session_state.temp_wine_to_move
+        
+        # Get all positions (available and occupied)
+        positions = storage_service.get_all_positions()
+        position_options = {}
+        for pos in positions:
+            if pos['id'] != selected_wine.get('position_id'):  # Exclude current position
+                position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
+        
+        # Try to find the position by number or identifier
+        selected_position = None
+        
+        # Check if user entered a number
+        try:
+            pos_num = int(user_input.strip())
+            position_keys = list(position_options.keys())
+            if 1 <= pos_num <= len(position_keys):
+                selected_position = position_options[position_keys[pos_num - 1]]
+        except ValueError:
+            # Not a number, try to find by identifier
+            user_input_lower = user_input.lower()
+            for pos_key, pos in position_options.items():
+                if user_input_lower in pos_key.lower():
+                    selected_position = pos
+                    break
+        
+        if selected_position:
+            # Move the wine to the new position
+            wine_service.move_wine_to_position(selected_wine["id"], selected_position["id"])
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"I've moved '{selected_wine['name']}' to position {selected_position['identifier']} ({selected_position['zone']}). The wine has been successfully relocated!"
+            })
+            
+            # Reset session values
+            st.session_state.temp_wine_to_move = None
+            st.session_state.conversation_mode = "general"
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "I couldn't find that position. Please try again with the exact identifier or number from the list."
             })
         
         st.rerun()

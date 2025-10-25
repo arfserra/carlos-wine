@@ -182,9 +182,13 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        query = "SELECT * FROM wines"
+        query = """
+        SELECT w.*, p.identifier as position_identifier, p.zone as position_zone
+        FROM wines w
+        LEFT JOIN positions p ON w.position_id = p.id
+        """
         if not include_consumed:
-            query += " WHERE consumed = 0"
+            query += " WHERE w.consumed = 0"
         
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -240,3 +244,113 @@ class Database:
         result = cursor.fetchone()
         
         return result["count"] > 0
+    
+    def get_all_positions(self):
+        """Get all positions (available and occupied)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            '''
+            SELECT p.*, s.zones
+            FROM positions p
+            JOIN storage s ON p.storage_id = s.id
+            '''
+        )
+        rows = cursor.fetchall()
+        
+        results = []
+        for row in rows:
+            position = dict(row)
+            # Add zone details from the zones JSON
+            zones = json.loads(position.pop("zones"))
+            for zone in zones:
+                if zone["name"] == position["zone"]:
+                    position["zone_details"] = zone
+                    break
+            results.append(position)
+        
+        return results
+    
+    def move_wine_to_position(self, wine_id, new_position_id):
+        """Move a wine to a new position."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Get current position
+        cursor.execute("SELECT position_id FROM wines WHERE id = ?", (wine_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return False
+        
+        current_position_id = result["position_id"]
+        
+        # Free up current position if it exists
+        if current_position_id:
+            cursor.execute(
+                '''
+                UPDATE positions
+                SET is_occupied = 0, wine_id = NULL
+                WHERE id = ?
+                ''',
+                (current_position_id,)
+            )
+        
+        # Check if new position is available
+        cursor.execute("SELECT is_occupied FROM positions WHERE id = ?", (new_position_id,))
+        position_result = cursor.fetchone()
+        
+        if not position_result:
+            return False
+        
+        # If position is occupied, we need to move the wine that's there first
+        if position_result["is_occupied"]:
+            # Get the wine currently in that position
+            cursor.execute("SELECT id FROM wines WHERE position_id = ? AND consumed = 0", (new_position_id,))
+            occupied_wine = cursor.fetchone()
+            
+            if occupied_wine:
+                # Move the occupied wine to the old position (swap)
+                cursor.execute(
+                    '''
+                    UPDATE wines
+                    SET position_id = ?
+                    WHERE id = ?
+                    ''',
+                    (current_position_id, occupied_wine["id"])
+                )
+                
+                # Update the old position to be occupied by the swapped wine
+                if current_position_id:
+                    cursor.execute(
+                        '''
+                        UPDATE positions
+                        SET is_occupied = 1, wine_id = ?
+                        WHERE id = ?
+                        ''',
+                        (occupied_wine["id"], current_position_id)
+                    )
+        
+        # Move the wine to the new position
+        cursor.execute(
+            '''
+            UPDATE wines
+            SET position_id = ?
+            WHERE id = ?
+            ''',
+            (new_position_id, wine_id)
+        )
+        
+        # Update the new position to be occupied
+        cursor.execute(
+            '''
+            UPDATE positions
+            SET is_occupied = 1, wine_id = ?
+            WHERE id = ?
+            ''',
+            (wine_id, new_position_id)
+        )
+        
+        conn.commit()
+        return True

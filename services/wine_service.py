@@ -21,3 +21,7 @@ class WineService:
     def get_wine_by_id(self, wine_id):
         """Get a specific wine by ID."""
         return self.db.get_wine_by_id(wine_id)
+    
+    def move_wine_to_position(self, wine_id, new_position_id):
+        """Move a wine to a new position."""
+        return self.db.move_wine_to_position(wine_id, new_position_id)
