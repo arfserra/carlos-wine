@@ -261,61 +261,64 @@ with st.sidebar:
         st.rerun()
 
 if st.sidebar.button("View Storage Positions"):
-    # Instead of setting a flag, add a message to the conversation
-    import sqlite3
-    import pandas as pd
-    
-    conn = sqlite3.connect("wine_collection.db")
-    conn.row_factory = sqlite3.Row
-    
-    # Get storage info
-    storage = conn.execute("SELECT * FROM storage").fetchone()
-    
-    if storage:
-        # Get all positions with wine information
-        positions = conn.execute("""
-            SELECT p.id, p.zone, p.identifier, p.is_occupied, 
-                   w.id as wine_id, w.name as wine_name 
-            FROM positions p
-            LEFT JOIN wines w ON p.wine_id = w.id AND w.consumed = 0
-            ORDER BY p.zone, p.identifier
-        """).fetchall()
-        
-        # Group by zone
-        zones = {}
-        for pos in positions:
-            zone = pos["zone"]
-            if zone not in zones:
-                zones[zone] = []
-            zones[zone].append(pos)
-        
-        # Create a formatted message
-        message = f"## Storage: {storage['description'][:50]}...\n\n"
-        
-        for zone, zone_positions in zones.items():
-            message += f"### Zone: {zone}\n\n"
-            message += "| Position | Status | Wine |\n"
-            message += "| --- | --- | --- |\n"
+    # Use Supabase service to get storage information
+    try:
+        # Check if storage is configured
+        if not get_storage_service().has_storage():
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "No storage configuration found. Please set up your storage first."
+            })
+        else:
+            # Get all positions with wine information
+            positions = get_storage_service().get_all_positions()
+            wines = get_wine_service().get_wines()
             
-            for pos in zone_positions:
-                status = "Occupied" if pos["is_occupied"] else "Empty"
-                wine = pos["wine_name"] if pos["wine_name"] else "None"
-                message += f"| {pos['identifier']} | {status} | {wine} |\n"
+            # Create a mapping of wine_id to wine info
+            wine_map = {wine["id"]: wine for wine in wines}
             
-            message += "\n"
-        
-        # Add the message to the chat
+            # Group by zone
+            zones = {}
+            for pos in positions:
+                zone = pos["zone"]
+                if zone not in zones:
+                    zones[zone] = []
+                
+                # Add wine information if position is occupied
+                pos_with_wine = pos.copy()
+                if pos.get("wine_id") and pos["wine_id"] in wine_map:
+                    pos_with_wine["wine_name"] = wine_map[pos["wine_id"]]["name"]
+                else:
+                    pos_with_wine["wine_name"] = None
+                
+                zones[zone].append(pos_with_wine)
+            
+            # Create a formatted message
+            message = "## Storage Positions\n\n"
+            
+            for zone, zone_positions in zones.items():
+                message += f"### Zone: {zone}\n\n"
+                message += "| Position | Status | Wine |\n"
+                message += "| --- | --- | --- |\n"
+                
+                for pos in zone_positions:
+                    status = "Occupied" if pos["is_occupied"] else "Empty"
+                    wine = pos.get("wine_name") if pos.get("wine_name") else "None"
+                    message += f"| {pos['identifier']} | {status} | {wine} |\n"
+                
+                message += "\n"
+            
+            # Add the message to the chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": message
+            })
+    except Exception as e:
         st.session_state.messages.append({
             "role": "assistant",
-            "content": message
-        })
-    else:
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "No storage configuration found. Please set up your storage first."
+            "content": f"Error retrieving storage information: {str(e)}"
         })
     
-    conn.close()
     st.rerun()
 
 # Display chat messages
@@ -510,60 +513,64 @@ if user_input:
             st.rerun()
         
         elif "storage" in lower_input or "positions" in lower_input or "fridge" in lower_input:
-            # Handle storage view within chat
-            import sqlite3
-            
-            conn = sqlite3.connect("wine_collection.db")
-            conn.row_factory = sqlite3.Row
-            
-            # Get storage info
-            storage = conn.execute("SELECT * FROM storage").fetchone()
-            
-            if storage:
-                # Get all positions with wine information
-                positions = conn.execute("""
-                    SELECT p.id, p.zone, p.identifier, p.is_occupied, 
-                           w.id as wine_id, w.name as wine_name 
-                    FROM positions p
-                    LEFT JOIN wines w ON p.wine_id = w.id AND w.consumed = 0
-                    ORDER BY p.zone, p.identifier
-                """).fetchall()
-                
-                # Group by zone
-                zones = {}
-                for pos in positions:
-                    zone = pos["zone"]
-                    if zone not in zones:
-                        zones[zone] = []
-                    zones[zone].append(pos)
-                
-                # Create a formatted message
-                message = f"## Storage: {storage['description'][:50]}...\n\n"
-                
-                for zone, zone_positions in zones.items():
-                    message += f"### Zone: {zone}\n\n"
-                    message += "| Position | Status | Wine |\n"
-                    message += "| --- | --- | --- |\n"
+            # Handle storage view within chat using Supabase service
+            try:
+                # Check if storage is configured
+                if not get_storage_service().has_storage():
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "No storage configuration found. Please set up your storage first."
+                    })
+                else:
+                    # Get all positions with wine information
+                    positions = get_storage_service().get_all_positions()
+                    wines = get_wine_service().get_wines()
                     
-                    for pos in zone_positions:
-                        status = "Occupied" if pos["is_occupied"] else "Empty"
-                        wine = pos["wine_name"] if pos["wine_name"] else "None"
-                        message += f"| {pos['identifier']} | {status} | {wine} |\n"
+                    # Create a mapping of wine_id to wine info
+                    wine_map = {wine["id"]: wine for wine in wines}
                     
-                    message += "\n"
-                
-                # Add the message to the chat
+                    # Group by zone
+                    zones = {}
+                    for pos in positions:
+                        zone = pos["zone"]
+                        if zone not in zones:
+                            zones[zone] = []
+                        
+                        # Add wine information if position is occupied
+                        pos_with_wine = pos.copy()
+                        if pos.get("wine_id") and pos["wine_id"] in wine_map:
+                            pos_with_wine["wine_name"] = wine_map[pos["wine_id"]]["name"]
+                        else:
+                            pos_with_wine["wine_name"] = None
+                        
+                        zones[zone].append(pos_with_wine)
+                    
+                    # Create a formatted message
+                    message = "## Storage Positions\n\n"
+                    
+                    for zone, zone_positions in zones.items():
+                        message += f"### Zone: {zone}\n\n"
+                        message += "| Position | Status | Wine |\n"
+                        message += "| --- | --- | --- |\n"
+                        
+                        for pos in zone_positions:
+                            status = "Occupied" if pos["is_occupied"] else "Empty"
+                            wine = pos.get("wine_name") if pos.get("wine_name") else "None"
+                            message += f"| {pos['identifier']} | {status} | {wine} |\n"
+                        
+                        message += "\n"
+                    
+                    # Add the message to the chat
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": message
+                    })
+            except Exception as e:
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": message
-                })
-            else:
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": "No storage configuration found. Please set up your storage first."
+                    "content": f"Error retrieving storage information: {str(e)}"
                 })
             
-            conn.close()
             st.rerun()
         
         else:
