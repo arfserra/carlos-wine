@@ -6,8 +6,20 @@ class Database:
         """Initialize database connection - now using Supabase."""
         # Check if we should use Supabase (if environment variables are set)
         if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_ANON_KEY"):
-            self.supabase = SupabaseService()
-            self.use_supabase = True
+            try:
+                self.supabase = SupabaseService()
+                self.use_supabase = True
+                print("Successfully connected to Supabase")
+            except Exception as e:
+                print(f"Failed to connect to Supabase, falling back to SQLite: {e}")
+                self.use_supabase = False
+                import sqlite3
+                import json
+                from datetime import datetime
+                import uuid
+                self.db_path = db_path
+                self.conn = None
+                self.create_tables()
         else:
             # Fallback to SQLite for local development
             self.use_supabase = False

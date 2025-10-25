@@ -15,7 +15,11 @@ class SupabaseService:
         if not self.url or not self.key:
             raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables")
         
-        self.supabase: Client = create_client(self.url, self.key)
+        try:
+            self.supabase: Client = create_client(self.url, self.key)
+        except Exception as e:
+            print(f"Failed to initialize Supabase client: {e}")
+            raise ValueError(f"Failed to connect to Supabase: {e}")
     
     def save_storage(self, storage_data):
         """Save storage configuration to Supabase."""
