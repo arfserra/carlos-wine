@@ -81,60 +81,120 @@ class OpenAIService:
                 "error": str(e)
             }
 
-    
-def get_pairing_recommendation(self, food_input, wines: List[Dict[str, str]], is_image: bool = False) -> Dict[str, Any]:
-    """Get wine pairing recommendations for food."""
-    try:
-        # Format the list of wines
-        wines_text = "\n".join([f"{i+1}. {wine['name']}: {wine['description']}" 
-                              for i, wine in enumerate(wines)])
+    def get_storage_configuration(self, description: str) -> Dict[str, Any]:
+        """
+        Generate storage configuration from user description.
         
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a wine pairing expert. Recommend wines from the user's collection that would pair well with their food. If there are no wines in the collection that are good suitable, suggest alternatives to buy."
-            }
-        ]
-        
-        if is_image:
-            # Process directly from image data without temp files
-            base64_image = base64.b64encode(food_input).decode('utf-8')
+        Args:
+            description: User's description of their wine storage setup
             
-            messages.append({
-                "role": "user",
-                "content": [
+        Returns:
+            Dict with storage configuration data
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
                     {
-                        "type": "text",
-                        "text": f"Recommend 1-3 wines from my collection that would pair well with this food. Explain why each would be a good match.\n\nMy wine collection:\n{wines_text}"
+                        "role": "system",
+                        "content": """You are a wine storage expert. Based on the user's description of their wine storage setup, create a detailed configuration including zones and positions. 
+
+Return a JSON object with this structure:
+{
+    "description": "Brief description of the storage setup",
+    "zones": [
+        {
+            "name": "Zone name (e.g., 'White Wine Zone', 'Red Wine Zone', 'Champagne Zone')",
+            "description": "Description of this zone",
+            "positions": [
+                {
+                    "identifier": "Position identifier (e.g., 'A1', 'B2', 'Top-Left')",
+                    "description": "Description of this position"
+                }
+            ]
+        }
+    ],
+    "total_positions": number
+}
+
+Create logical zones based on wine types and organize positions within each zone."""
                     },
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        "role": "user",
+                        "content": f"Set up my wine storage based on this description: {description}"
                     }
-                ]
-            })
-        else:
-            # Process as text description (unchanged)
-            messages.append({
-                "role": "user",
-                "content": f"I'm planning to eat: {food_input}\n\nRecommend 1-3 wines from my collection that would pair well with this food. Explain why each would be a good match.\n\nMy wine collection:\n{wines_text}"
-            })
-        
-        # Call OpenAI API
-        response = self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            max_tokens=800
-        )
-        
-        return {
-            "success": True,
-            "recommendation": response.choices[0].message.content,
-            "usage": response.usage.total_tokens
-        }
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=1000
+            )
             
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+            content = json.loads(response.choices[0].message.content)
+            
+            return {
+                "success": True,
+                "data": content,
+                "usage": response.usage.total_tokens
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def get_pairing_recommendation(self, food_input, wines: List[Dict[str, str]], is_image: bool = False) -> Dict[str, Any]:
+        """Get wine pairing recommendations for food."""
+        try:
+            # Format the list of wines
+            wines_text = "\n".join([f"{i+1}. {wine['name']}: {wine['description']}" 
+                                  for i, wine in enumerate(wines)])
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a wine pairing expert. Recommend wines from the user's collection that would pair well with their food. If there are no wines in the collection that are good suitable, suggest alternatives to buy."
+                }
+            ]
+            
+            if is_image:
+                # Process directly from image data without temp files
+                base64_image = base64.b64encode(food_input).decode('utf-8')
+                
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Recommend 1-3 wines from my collection that would pair well with this food. Explain why each would be a good match.\n\nMy wine collection:\n{wines_text}"
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        }
+                    ]
+                })
+            else:
+                # Process as text description (unchanged)
+                messages.append({
+                    "role": "user",
+                    "content": f"I'm planning to eat: {food_input}\n\nRecommend 1-3 wines from my collection that would pair well with this food. Explain why each would be a good match.\n\nMy wine collection:\n{wines_text}"
+                })
+            
+            # Call OpenAI API
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=800
+            )
+            
+            return {
+                "success": True,
+                "recommendation": response.choices[0].message.content,
+                "usage": response.usage.total_tokens
+            }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
