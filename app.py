@@ -92,15 +92,26 @@ def process_image(image_data, mode):
                 # Suggest position based on wine type
                 positions = get_storage_service().get_available_positions()
                 if positions:
-                    # Determine if it's a white or red wine
+                    # Determine if it's a white or red wine with improved detection
                     is_white_wine = False
                     if isinstance(wine_data['description'], dict):
                         wine_type = wine_data['description'].get('wine_type', '').lower()
-                        is_white_wine = 'white' in wine_type or 'blanc' in wine_type
+                        description_text = wine_data['description'].get('description', '').lower()
+                        full_text = f"{wine_type} {description_text}"
                     else:
                         # Try to infer from the description text
-                        description_lower = wine_data['description'].lower()
-                        is_white_wine = 'white' in description_lower or 'blanc' in description_lower
+                        full_text = wine_data['description'].lower()
+                    
+                    # Enhanced wine type detection
+                    white_keywords = ['white', 'blanc', 'blanche', 'bianco', 'weiss', 'chardonnay', 'sauvignon', 'riesling', 'pinot grigio', 'pinot gris', 'moscato', 'gewürztraminer', 'viognier', 'chenin blanc', 'semillon', 'verdelho', 'albarino', 'torrontes']
+                    red_keywords = ['red', 'rouge', 'rosso', 'rot', 'cabernet', 'merlot', 'pinot noir', 'syrah', 'shiraz', 'malbec', 'tempranillo', 'sangiovese', 'nebbiolo', 'barbera', 'zinfandel', 'grenache', 'mourvedre', 'petit verdot', 'carmenere', 'tannat', 'pinotage', 'bordeaux', 'burgundy', 'rioja', 'chianti', 'barolo', 'barbaresco', 'brunello', 'amarone', 'valpolicella', 'primitive', 'nero d\'avola', 'agiorgitiko', 'xinomavro']
+                    
+                    # Check for white wine keywords
+                    is_white_wine = any(keyword in full_text for keyword in white_keywords)
+                    
+                    # If not white, check for red wine keywords
+                    if not is_white_wine:
+                        is_white_wine = not any(keyword in full_text for keyword in red_keywords)
                     
                     # Find appropriate position based on wine type
                     appropriate_positions = []
@@ -121,7 +132,19 @@ def process_image(image_data, mode):
                     
                     wine_type_str = "white" if is_white_wine else "red"
                     st.write(f"**Suggested Position:** {position['identifier']} ({position['zone']})")
-                    st.write(f"*Recommendation based on {wine_type_str} wine type.*")
+                    st.write(f"*Recommendation based on {wine_type_str} wine type detection.*")
+                    
+                    # Add debug info for wine type detection
+                    detected_keywords = []
+                    if is_white_wine:
+                        detected_keywords = [kw for kw in white_keywords if kw in full_text]
+                    else:
+                        detected_keywords = [kw for kw in red_keywords if kw in full_text]
+                    
+                    if detected_keywords:
+                        st.write(f"*Detected keywords: {', '.join(detected_keywords[:3])}*")
+                    else:
+                        st.write(f"*No specific wine type keywords detected - defaulting to red wine*")
                     
                     # Add option to choose different position
                     st.write("**Don't like this position?** Choose a different one:")
