@@ -433,10 +433,12 @@ if user_input:
                     st.rerun()
     
     elif st.session_state.conversation_mode == "general":
-        # Process general queries
+        # Process general queries with enhanced natural language understanding
         lower_input = user_input.lower()
         
-        if "consumed" in lower_input or "finished" in lower_input or "drank" in lower_input or "emptied" in lower_input:
+        # Enhanced wine consumption detection
+        consumption_keywords = ["consumed", "finished", "drank", "emptied", "finished drinking", "drank the", "consumed the", "finished the", "emptied the", "drank my", "finished my", "consumed my"]
+        if any(keyword in lower_input for keyword in consumption_keywords):
             # Handle marking a wine as consumed
             wines = get_wine_service().get_wines()
             if not wines:
@@ -457,7 +459,8 @@ if user_input:
                 })
                 st.rerun()
         
-        elif "move" in lower_input or "change position" in lower_input or "relocate" in lower_input:
+        # Enhanced wine position change detection
+        elif any(phrase in lower_input for phrase in ["move", "change position", "relocate", "move wine", "change wine position", "relocate wine", "move the wine", "change the position", "switch position", "switch wine", "reposition", "move to", "change to", "relocate to"]):
             # Handle changing wine position
             wines = get_wine_service().get_wines()
             if not wines:
@@ -478,7 +481,8 @@ if user_input:
                 })
                 st.rerun()
         
-        elif "collection" in lower_input or "inventory" in lower_input or "wines" in lower_input:
+        # Enhanced collection viewing detection
+        elif any(phrase in lower_input for phrase in ["collection", "inventory", "wines", "my wines", "my collection", "show wines", "show collection", "list wines", "list collection", "what wines", "what's in my collection", "what do i have", "my wine collection", "wine inventory", "wine list", "all wines", "all bottles", "my bottles"]):
             # Handle collection status
             wines = get_wine_service().get_wines()
             if wines:
@@ -494,7 +498,8 @@ if user_input:
                 })
             st.rerun()
         
-        elif "add" in lower_input and ("wine" in lower_input or "bottle" in lower_input):
+        # Enhanced wine addition detection
+        elif any(phrase in lower_input for phrase in ["add wine", "add a wine", "add new wine", "add bottle", "add a bottle", "add new bottle", "add to collection", "add wine to collection", "new wine", "new bottle", "register wine", "register bottle", "log wine", "log bottle", "record wine", "record bottle"]):
             # Switch to wine add mode
             st.session_state.conversation_mode = "wine_add"
             st.session_state.messages.append({
@@ -503,7 +508,8 @@ if user_input:
             })
             st.rerun()
         
-        elif "pairing" in lower_input or "pair" in lower_input or ("recommend" in lower_input and "food" in lower_input):
+        # Enhanced wine pairing detection
+        elif any(phrase in lower_input for phrase in ["pairing", "pair", "wine pairing", "wine pair", "recommend wine", "wine recommendation", "what wine", "which wine", "suggest wine", "wine suggestion", "recommend a wine", "suggest a wine", "what should i drink", "which wine should i drink", "wine for", "wine to go with", "wine that goes with", "pair with", "goes with", "match with", "complement", "wine advice", "drinking advice"]):
             # Switch to pairing mode
             st.session_state.conversation_mode = "pairing"
             st.session_state.messages.append({
@@ -512,7 +518,8 @@ if user_input:
             })
             st.rerun()
         
-        elif "storage" in lower_input or "positions" in lower_input or "fridge" in lower_input:
+        # Enhanced storage viewing detection
+        elif any(phrase in lower_input for phrase in ["storage", "positions", "fridge", "wine storage", "storage positions", "wine positions", "where are my wines", "wine locations", "storage locations", "position status", "storage status", "wine storage status", "show storage", "show positions", "storage layout", "wine layout", "storage map", "wine map", "cellar", "wine cellar", "wine rack", "wine fridge"]):
             # Handle storage view within chat using Supabase service
             try:
                 # Check if storage is configured
@@ -573,6 +580,41 @@ if user_input:
             
             st.rerun()
         
+        # Enhanced setup detection
+        elif any(phrase in lower_input for phrase in ["setup", "set up", "configure", "setup storage", "set up storage", "configure storage", "storage setup", "wine storage setup", "setup my storage", "configure my storage", "storage configuration", "wine storage configuration"]):
+            st.session_state.conversation_mode = "storage_setup"
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Let's set up your wine storage. Please describe your wine storage setup in detail (type, size, zones, temperature control, etc.)"
+            })
+            st.rerun()
+        
+        # Enhanced help detection
+        elif any(phrase in lower_input for phrase in ["help", "what can you do", "commands", "how to", "how do i", "what should i do", "instructions", "guide", "tutorial", "assistance"]):
+            help_message = """I can help you with your wine collection! Here's what I can do:
+
+🍷 **Add Wines**: Take a photo of wine labels or upload images to add wines to your collection
+🍽️ **Find Pairings**: Get wine recommendations for your meals - just describe or photograph your food
+📦 **Manage Storage**: Set up and view your wine storage positions
+🔄 **Move Wines**: Change wine positions in your storage
+✅ **Mark Consumed**: Record when you've finished a wine
+📋 **View Collection**: See all your wines and their details
+
+Just tell me what you'd like to do in natural language, like:
+- "Add a new wine"
+- "What wine goes with pasta?"
+- "Show my collection"
+- "Move my wine to a different position"
+- "I finished drinking my Chardonnay"
+
+What would you like to do?"""
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": help_message
+            })
+            st.rerun()
+        
         else:
             # Handle with GPT-4o for general wine-related queries
             with st.spinner("Thinking..."):
@@ -601,7 +643,7 @@ if user_input:
                     }
                 ]
                 
-                response = ai_service.client.chat.completions.create(
+                response = get_ai_service().client.chat.completions.create(
                     model="gpt-4o",
                     messages=messages,
                     max_tokens=800

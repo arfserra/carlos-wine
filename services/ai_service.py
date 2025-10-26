@@ -3,6 +3,7 @@ import os
 import base64
 import json
 import tempfile
+import re
 from openai import OpenAI
 from typing import Dict, Any, List, Optional
 
@@ -168,7 +169,6 @@ Create logical zones based on wine types and organize positions within each zone
                 except json.JSONDecodeError:
                     # Strategy 3: Extract JSON object using regex
                     try:
-                        import re
                         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                         if json_match:
                             content = json.loads(json_match.group())
