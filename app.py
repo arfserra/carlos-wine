@@ -519,17 +519,21 @@ if user_input:
             # Change position
             st.session_state.conversation_mode = "edit_wine_position"
             
-            # Get available positions
-            positions = get_storage_service().get_available_positions()
-            if positions:
+            # Get all positions and filter appropriately
+            all_positions = get_storage_service().get_all_positions()
+            if all_positions:
                 position_options = {}
-                for pos in positions:
+                available_positions = get_storage_service().get_available_positions()
+                available_ids = {pos['id'] for pos in available_positions}
+                
+                # Add available positions
+                for pos in available_positions:
                     position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
                 
-                # Also add currently occupied positions (excluding the wine's current position)
-                occupied_positions = get_storage_service().get_all_positions()
-                for pos in occupied_positions:
-                    if pos['id'] != selected_wine.get('position_id'):
+                # Add occupied positions (excluding current wine's position and already added available positions)
+                for pos in all_positions:
+                    if (pos['id'] != selected_wine.get('position_id') and 
+                        pos['id'] not in available_ids):
                         position_options[f"{pos['identifier']} ({pos['zone']}) - OCCUPIED"] = pos
                 
                 position_list = "\n".join([f"{i+1}. {pos_key}" for i, pos_key in enumerate(position_options.keys())])
