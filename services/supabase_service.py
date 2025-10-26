@@ -237,3 +237,29 @@ class SupabaseService:
         except Exception as e:
             print(f"Error moving wine: {e}")
             return False
+    
+    def delete_wine(self, wine_id):
+        """Delete a wine from the collection permanently."""
+        try:
+            # Get wine's current position
+            wine_result = self.supabase.table("wines").select("position_id").eq("id", wine_id).execute()
+            
+            if not wine_result.data:
+                return False
+            
+            position_id = wine_result.data[0].get("position_id")
+            
+            # Delete the wine
+            self.supabase.table("wines").delete().eq("id", wine_id).execute()
+            
+            # Free up position if it exists
+            if position_id:
+                self.supabase.table("positions").update({
+                    "is_occupied": False,
+                    "wine_id": None
+                }).eq("id", position_id).execute()
+            
+            return True
+        except Exception as e:
+            print(f"Error deleting wine: {e}")
+            return False

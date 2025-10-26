@@ -25,3 +25,7 @@ class WineService:
     def move_wine_to_position(self, wine_id, new_position_id):
         """Move a wine to a new position."""
         return self.db.move_wine_to_position(wine_id, new_position_id)
+    
+    def delete_wine(self, wine_id):
+        """Delete a wine from the collection permanently."""
+        return self.db.delete_wine(wine_id)

@@ -224,6 +224,8 @@ if "temp_wine" not in st.session_state:
     st.session_state.temp_wine = None
 if "temp_position" not in st.session_state:
     st.session_state.temp_position = None
+if "temp_wine_to_edit" not in st.session_state:
+    st.session_state.temp_wine_to_edit = None
 
 # App header
 st.title("🍷 Carlos Wine Assistant")
@@ -263,6 +265,22 @@ with st.sidebar:
             "role": "assistant",
             "content": "What are you eating? You can take a picture of the dish or describe it."
         })
+        st.rerun()
+    
+    # Edit Wine button
+    if st.button("Edit Wine"):
+        wines = get_wine_service().get_wines()
+        if not wines:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "You don't have any wines in your collection to edit. Add some wines first!"
+            })
+        else:
+            st.session_state.conversation_mode = "edit_wine"
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Let's edit a wine in your collection. Which wine would you like to edit?"
+            })
         st.rerun()
     
     # Set Up Storage button (only if not configured)
@@ -449,6 +467,187 @@ if user_input:
                         "content": f"I couldn't generate a recommendation: {result.get('error', 'Unknown error')}. Please try again."
                     })
                     st.rerun()
+    
+    elif st.session_state.conversation_mode == "edit_wine":
+        # Handle wine selection for editing
+        wines = get_wine_service().get_wines()
+        
+        # Try to find the wine by number or name
+        selected_wine = None
+        
+        # Check if user entered a number
+        try:
+            wine_num = int(user_input.strip())
+            if 1 <= wine_num <= len(wines):
+                selected_wine = wines[wine_num - 1]
+        except ValueError:
+            # Not a number, try to find by name
+            user_input_lower = user_input.lower()
+            for wine in wines:
+                if user_input_lower in wine["name"].lower():
+                    selected_wine = wine
+                    break
+        
+        if selected_wine:
+            # Store the selected wine and show edit options
+            st.session_state.temp_wine_to_edit = selected_wine
+            st.session_state.conversation_mode = "edit_wine_options"
+            
+            wine_names = [f"{i+1}. {wine['name']}" for i, wine in enumerate(wines)]
+            wines_list = "\n".join(wine_names)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Great! You want to edit '{selected_wine['name']}'. What would you like to do?\n\n**Available options:**\n1. Change position\n2. Delete wine\n\nPlease specify by number (1 or 2):"
+            })
+        else:
+            wine_names = [f"{i+1}. {wine['name']}" for i, wine in enumerate(wines)]
+            wines_list = "\n".join(wine_names)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"I couldn't find that wine. Please specify by number or name:\n\n{wines_list}"
+            })
+        
+        st.rerun()
+    
+    elif st.session_state.conversation_mode == "edit_wine_options":
+        # Handle edit wine options (change position or delete)
+        selected_wine = st.session_state.temp_wine_to_edit
+        
+        if user_input.strip() == "1" or "position" in user_input.lower():
+            # Change position
+            st.session_state.conversation_mode = "edit_wine_position"
+            
+            # Get available positions
+            positions = get_storage_service().get_available_positions()
+            if positions:
+                position_options = {}
+                for pos in positions:
+                    position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
+                
+                # Also add currently occupied positions (excluding the wine's current position)
+                occupied_positions = get_storage_service().get_all_positions()
+                for pos in occupied_positions:
+                    if pos['id'] != selected_wine.get('position_id'):
+                        position_options[f"{pos['identifier']} ({pos['zone']}) - OCCUPIED"] = pos
+                
+                position_list = "\n".join([f"{i+1}. {pos_key}" for i, pos_key in enumerate(position_options.keys())])
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Perfect! You want to change the position of '{selected_wine['name']}'. Where would you like to move it?\n\nAvailable positions:\n{position_list}\n\nPlease specify by number or position identifier:"
+                })
+            else:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "No available positions found. You'll need to free up a position first by consuming a wine."
+                })
+                st.session_state.conversation_mode = "general"
+                st.session_state.temp_wine_to_edit = None
+        
+        elif user_input.strip() == "2" or "delete" in user_input.lower():
+            # Delete wine
+            st.session_state.conversation_mode = "edit_wine_delete"
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Are you sure you want to delete '{selected_wine['name']}' from your collection? This action cannot be undone.\n\nType 'yes' to confirm deletion or 'no' to cancel:"
+            })
+        
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Please specify either '1' for change position or '2' for delete wine."
+            })
+        
+        st.rerun()
+    
+    elif st.session_state.conversation_mode == "edit_wine_position":
+        # Handle changing wine position during edit
+        selected_wine = st.session_state.temp_wine_to_edit
+        
+        # Get all positions (available and occupied)
+        positions = get_storage_service().get_all_positions()
+        position_options = {}
+        for pos in positions:
+            if pos['id'] != selected_wine.get('position_id'):  # Exclude current position
+                position_options[f"{pos['identifier']} ({pos['zone']})"] = pos
+        
+        # Try to find the position by number or identifier
+        selected_position = None
+        
+        # Check if user entered a number
+        try:
+            pos_num = int(user_input.strip())
+            position_keys = list(position_options.keys())
+            if 1 <= pos_num <= len(position_keys):
+                selected_position = position_options[position_keys[pos_num - 1]]
+        except ValueError:
+            # Not a number, try to find by identifier
+            user_input_lower = user_input.lower()
+            for pos_key, pos in position_options.items():
+                if user_input_lower in pos_key.lower():
+                    selected_position = pos
+                    break
+        
+        if selected_position:
+            # Move the wine to the new position
+            get_wine_service().move_wine_to_position(selected_wine["id"], selected_position["id"])
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"I've moved '{selected_wine['name']}' to position {selected_position['identifier']} ({selected_position['zone']}). The wine has been successfully relocated!"
+            })
+            
+            # Reset session values
+            st.session_state.temp_wine_to_edit = None
+            st.session_state.conversation_mode = "general"
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "I couldn't find that position. Please try again with the exact identifier or number from the list."
+            })
+        
+        st.rerun()
+    
+    elif st.session_state.conversation_mode == "edit_wine_delete":
+        # Handle wine deletion confirmation
+        selected_wine = st.session_state.temp_wine_to_edit
+        
+        if user_input.lower().strip() in ["yes", "y", "confirm", "delete"]:
+            # Delete the wine
+            success = get_wine_service().delete_wine(selected_wine["id"])
+            
+            if success:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"I've deleted '{selected_wine['name']}' from your collection. The wine has been permanently removed."
+                })
+            else:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Sorry, I couldn't delete '{selected_wine['name']}'. Please try again or contact support if the issue persists."
+                })
+            
+            # Reset session values
+            st.session_state.temp_wine_to_edit = None
+            st.session_state.conversation_mode = "general"
+        elif user_input.lower().strip() in ["no", "n", "cancel"]:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Deletion cancelled. '{selected_wine['name']}' remains in your collection."
+            })
+            
+            # Reset session values
+            st.session_state.temp_wine_to_edit = None
+            st.session_state.conversation_mode = "general"
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Please type 'yes' to confirm deletion or 'no' to cancel."
+            })
+        
+        st.rerun()
     
     elif st.session_state.conversation_mode == "general":
         # Process general queries with enhanced natural language understanding
