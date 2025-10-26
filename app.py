@@ -17,6 +17,20 @@ ai_service = None
 storage_service = None
 wine_service = None
 
+def sort_position_key(pos):
+    """Sort positions by identifier in logical order (e.g., 3A, 3B, 3C, 4A, 4B, etc.)"""
+    identifier = pos["identifier"]
+    # Extract number and letter parts
+    import re
+    match = re.match(r'(\d+)([A-Z])', identifier)
+    if match:
+        number = int(match.group(1))
+        letter = match.group(2)
+        return (number, letter)
+    else:
+        # Fallback to string sorting if format doesn't match
+        return (0, identifier)
+
 def get_ai_service():
     global ai_service
     if ai_service is None:
@@ -293,6 +307,10 @@ if st.sidebar.button("View Storage Positions"):
                 
                 zones[zone].append(pos_with_wine)
             
+            # Sort positions within each zone
+            for zone in zones:
+                zones[zone].sort(key=sort_position_key)
+            
             # Create a formatted message
             message = "## Storage Positions\n\n"
             
@@ -551,6 +569,10 @@ if user_input:
                             pos_with_wine["wine_name"] = None
                         
                         zones[zone].append(pos_with_wine)
+                    
+                    # Sort positions within each zone
+                    for zone in zones:
+                        zones[zone].sort(key=sort_position_key)
                     
                     # Create a formatted message
                     message = "## Storage Positions\n\n"
